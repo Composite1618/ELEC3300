@@ -1,2 +1,2 @@
 # ELEC3300
-ELEC3300 Quadcopter
+This is the code for my ELEC3300 Quadcopter.
