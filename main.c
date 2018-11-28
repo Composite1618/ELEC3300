@@ -26,14 +26,15 @@
 
 #define dt 0.01
 
-float roll_c=0, pitch_c=0;
+float roll=0, pitch=0;
 float roll_sum=0, pitch_sum=0;
 float roll_normal, pitch_normal;//THIS VALUE CHANGES A LOT!!! DON'T FORGET TO CHANGE IT OFTEN!!
 
 float roll_error, pitch_error;
-float p_value=15,i_value=0.03,d_value=7;//Adjust these values
+float p_value=1.3,d_value=18;//Adjust these values
 int pid_roll_sum=0,pid_pitch_sum=0;
-float pid_i_roll=0,pid_i_pitch=0,last_roll_error=0,last_pitch_error=0;
+//float pid_i_roll=0,pid_i_pitch=0, i_value=0.03
+float last_roll_error=0,last_pitch_error=0;
 
 void ComplementaryFilter(short accData[3], short gyrData[3], float *roll, float *pitch);
 void Delayus(int duration);
@@ -51,17 +52,18 @@ void All_Timer_Pulse_Change(int pulse);
 void Pulse_Balance(void);
 
 int stop = 1000;
-int mid = 1400;
-int up = 1650;
-int base_throttle=1400;
+int mid = 1100;
+int up = 1100;
 int pulse2,pulse3,pulse4,pulse5;
+int base_throttle=1000;
 uint16_t rxdata;
+char AnglesChar[70];
 int main(void)
 {
 	short Accel[3];
 	short Gyro[3];
-	char AnglesChar[70];
 	int i;
+	base_throttle=mid;
 
 	i2c_GPIO_Config();
 	MPU6050_Init();
@@ -75,17 +77,17 @@ int main(void)
 		Delayus(10000);
 		MPU6050ReadAcc(Accel);
 		MPU6050ReadGyro(Gyro);
-		ComplementaryFilter(&Accel[0], &Gyro[0], &roll_c, &pitch_c);
+		ComplementaryFilter(&Accel[0], &Gyro[0], &roll, &pitch);
 	}
 	
-	All_Timer_Pulse_Change(mid);
+	All_Timer_Pulse_Change(1200);
 	
 	for (i = 0; i < 200; ++i)
 	{
 		Delayus(10000);
 		MPU6050ReadAcc(Accel);
 		MPU6050ReadGyro(Gyro);
-		ComplementaryFilter(&Accel[0], &Gyro[0], &roll_c, &pitch_c);
+		ComplementaryFilter(&Accel[0], &Gyro[0], &roll, &pitch);
 	}
 	
 	All_Timer_Pulse_Change(stop);
@@ -95,35 +97,53 @@ int main(void)
 		Delayus(10000);
 		MPU6050ReadAcc(Accel);
 		MPU6050ReadGyro(Gyro);
-		ComplementaryFilter(&Accel[0], &Gyro[0], &roll_c, &pitch_c);
-		roll_sum+=roll_c;
-		pitch_sum+=pitch_c;
+		ComplementaryFilter(&Accel[0], &Gyro[0], &roll, &pitch);
+		roll_sum+=roll;
+		pitch_sum+=pitch;
 	}
 	roll_normal=roll_sum/200;
 	pitch_normal=pitch_sum/200;
 	
 	
 	while(1)
-	{ 
+	{
+		
 		Delayus(10000);
+		
 		if (USART_GetFlagStatus(USART1,USART_FLAG_RXNE) == SET) {
-			rxdata = USART_ReceiveData(USART1);
-			if (rxdata == '0') {
-				base_throttle=mid;
+			rxdata = USART_ReceiveData(USART1);	
+			if (rxdata == 'w') {
+				LCD_DrawString(0,100,"WWWWW");
+			}	
+			else if (rxdata == 'a') {
+				LCD_DrawString(0,100,"AAAAA");
+			}	
+			else if (rxdata == 's') {
+				LCD_DrawString(0,100,"SSSSS");
+			}	
+			else if (rxdata == 'd') {
+				LCD_DrawString(0,100,"DDDDD");
+			}	
+			else if (rxdata == 'f') {
+				LCD_DrawString(0,100,"FFFFF");
+			}	
+			else if (rxdata == 'b') {
+				LCD_DrawString(0,100,"BBBBB");
 			}	
 			else if (rxdata == '1') {
-				base_throttle=up;
-			}
+				All_Timer_Pulse_Change(1000);
+				return -1;
+			}	
 		}
 		
 		MPU6050ReadAcc(Accel);
 		MPU6050ReadGyro(Gyro);
-		ComplementaryFilter(&Accel[0], &Gyro[0], &roll_c, &pitch_c);
+		ComplementaryFilter(&Accel[0], &Gyro[0], &roll, &pitch);
 		
-		sprintf(AnglesChar,"Roll:%6.3f Pitch:%6.3f",roll_c,pitch_c);
+		ctrl(&roll, &pitch, &pid_roll_sum, &pid_pitch_sum);
+		
+		sprintf(AnglesChar,"Roll:%6.3f Pitch:%6.3f",roll,pitch);
 		LCD_DrawString(0,0,AnglesChar);
-		
-		ctrl(&roll_c, &pitch_c, &pid_roll_sum, &pid_pitch_sum);
 		
 		sprintf(AnglesChar,"RN:%6.3f PN:%6.3f",roll_normal,pitch_normal);
 		LCD_DrawString(0,20,AnglesChar);
@@ -132,6 +152,12 @@ int main(void)
 		LCD_DrawString(0,40,AnglesChar);
 		
 		Pulse_Balance();
+		
+		sprintf(AnglesChar,"pulse2:%i pulse3:%i",pulse2,pulse3);
+		LCD_DrawString(0,60,AnglesChar);
+		
+		sprintf(AnglesChar,"pulse4:%i pulse5:%i",pulse4,pulse5);
+		LCD_DrawString(0,80,AnglesChar);
 	}
 }
 
@@ -156,7 +182,7 @@ void ComplementaryFilter(short accData[3], short gyrData[3], float *roll, float 
     	rollAcc = atan2f((float)accData[0], (float)accData[2]) * 180 / M_PI;
     	*roll = *roll * 0.98 + rollAcc * 0.02;
     }
-		
+    
 	//Ripped this code online
 }
 
@@ -167,8 +193,8 @@ void ctrl(float * rollp, float * pitchp, int * pid_roll_p, int * pid_pitch_p) {
 	//pid_i_roll+=i_value*roll_error;
 	//pid_i_pitch+=i_value*pitch_error; Not sure we need an I term.
 	
-	*pid_roll_p = p_value*roll_error+pid_i_roll+d_value*(roll_error-last_roll_error);
-	*pid_pitch_p = p_value*pitch_error+pid_i_pitch+d_value*(pitch_error-last_pitch_error);
+	*pid_roll_p = p_value*roll_error+d_value*(roll_error-last_roll_error);
+	*pid_pitch_p = p_value*pitch_error+d_value*(pitch_error-last_pitch_error);
 	
 	last_roll_error = roll_error;
 	last_pitch_error = pitch_error;
@@ -197,11 +223,11 @@ void GPIO_Config (void)
 	
 	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_9;
 	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
-	GPIO_Init(GPIOA, &GPIO_InitStructure); //Bluetooth TX
+	GPIO_Init(GPIOA, &GPIO_InitStructure); //Connect this pin to Bluetooth RX
 
 	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_10;
 	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
-	GPIO_Init(GPIOA, &GPIO_InitStructure); //Bluetooth RX
+	GPIO_Init(GPIOA, &GPIO_InitStructure); //Connect this pin to Bluetooth TX
 	
 	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_4 | GPIO_Pin_5 | GPIO_Pin_7;
 	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_OD;
@@ -272,14 +298,15 @@ void All_Timer_Pulse_Change(int pulse) {
 	TIM_OC3Init(TIM4, &TIM_OCInitStructure);//PB8
 	TIM_OC4Init(TIM5, &TIM_OCInitStructure);//PA3
 }
-		
+
 void Pulse_Balance(void) {
+	//a6 a3 roll + a2 b8 roll - a2 a6 pitch+ b8 a3 pitch- 
 	
 	pulse2 = base_throttle - pid_roll_sum + pid_pitch_sum;
-	pulse3 = base_throttle - pid_roll_sum - pid_pitch_sum;
-	pulse4 = base_throttle + pid_roll_sum + pid_pitch_sum;
+	pulse3 = base_throttle + pid_roll_sum + pid_pitch_sum;
+	pulse4 = base_throttle - pid_roll_sum - pid_pitch_sum;
 	pulse5 = base_throttle + pid_roll_sum - pid_pitch_sum;
-			
+	
 	if (pulse2 > 2000)
 		pulse2 = 2000;
 	if (pulse3 > 2000)
@@ -289,15 +316,15 @@ void Pulse_Balance(void) {
 	if (pulse5 > 2000)
 		pulse5 = 2000;
 
-	if (pulse2 < 1100)
-		pulse2 = 1100;
-	if (pulse3 < 1100)
-		pulse3 = 1100;
-	if (pulse4 < 1100)
-		pulse4 = 1100;
-	if (pulse5 < 1100)
-		pulse5 = 1100;
-			
+	if (pulse2 < 1000)
+		pulse2 = 1000;
+	if (pulse3 < 1000)
+		pulse3 = 1000;
+	if (pulse4 < 1000)
+		pulse4 = 1000;
+	if (pulse5 < 1000)
+		pulse5 = 1000;
+	
 	TIM_OCInitStructure.TIM_Pulse = pulse2;
 	TIM_OC3Init(TIM2, &TIM_OCInitStructure);
 	
@@ -316,6 +343,6 @@ void Delayus(int duration) {
 	{
 		int i=0x02;       
 		while(i--)
-		__asm("nop");
+			__asm("nop");
 	}
 }
