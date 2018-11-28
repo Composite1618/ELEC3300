@@ -28,12 +28,12 @@
 
 float roll=0, pitch=0;
 float roll_sum=0, pitch_sum=0;
-float roll_normal, pitch_normal;//THIS VALUE CHANGES A LOT!!! DON'T FORGET TO CHANGE IT OFTEN!!
+float roll_normal, pitch_normal;
 
 float roll_error, pitch_error;
 float p_value=1.3,d_value=18;//Adjust these values
 int pid_roll_sum=0,pid_pitch_sum=0;
-//float pid_i_roll=0,pid_i_pitch=0, i_value=0.03
+float pid_i_roll=0,pid_i_pitch=0, i_value=0.03;
 float last_roll_error=0,last_pitch_error=0;
 
 void ComplementaryFilter(short accData[3], short gyrData[3], float *roll, float *pitch);
@@ -190,11 +190,11 @@ void ctrl(float * rollp, float * pitchp, int * pid_roll_p, int * pid_pitch_p) {
 	roll_error = *rollp - roll_normal;
 	pitch_error = *pitchp - pitch_normal;
 	
-	//pid_i_roll+=i_value*roll_error;
-	//pid_i_pitch+=i_value*pitch_error; Not sure we need an I term.
+	pid_i_roll += i_value*roll_error;
+	pid_i_pitch += i_value*pitch_error;
 	
-	*pid_roll_p = p_value*roll_error+d_value*(roll_error-last_roll_error);
-	*pid_pitch_p = p_value*pitch_error+d_value*(pitch_error-last_pitch_error);
+	*pid_roll_p = p_value*roll_error+pid_i_roll+d_value*(roll_error-last_roll_error);
+	*pid_pitch_p = p_value*pitch_error+pid_i_pitch+d_value*(pitch_error-last_pitch_error);
 	
 	last_roll_error = roll_error;
 	last_pitch_error = pitch_error;
