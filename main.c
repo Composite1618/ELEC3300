@@ -25,7 +25,7 @@
 
 #define M_PI 3.14159265359	    
 
-#define dt 0.01
+#define dt 0.005
 
 float roll=0, pitch=0;
 float roll_sum=0, pitch_sum=0;
@@ -37,10 +37,10 @@ float last_roll_error=0,last_pitch_error=0;
 int pid_roll_25_sum=0,pid_pitch_25_sum=0;
 int pid_roll_34_sum=0,pid_pitch_34_sum=0;
 
-float p_25_value=2.1,d_25_value=15.1, i_25_value=0.023;//Adjust these values
+float p_25_value=3.1,d_25_value=13.5, i_25_value=0.027;//Adjust these values
 float pid_i_roll_25=0,pid_i_pitch_25=0;
 
-float p_34_value=2.1,d_34_value=15.1, i_34_value=0.023;//Adjust these values
+float p_34_value=3.1,d_34_value=13.5, i_34_value=0.027;//Adjust these values
 float pid_i_roll_34=0,pid_i_pitch_34=0;
 
 void ComplementaryFilter(short accData[3], short gyrData[3], float *roll, float *pitch);
@@ -58,11 +58,11 @@ void Four_Clocks(void);//maps clocks PWM in pins
 void All_Timer_Pulse_Change(int pulse);
 void Pulse_Balance(void);
 
-int stop = 1000;
+int stop = 1100;
 int down = 1300;
 int up = 1475;
 int pulse2,pulse3,pulse4,pulse5;
-int base_throttle=1000;
+int base_throttle;
 uint16_t rxdata;
 char AnglesChar[70];
 bool increase=false;
@@ -82,25 +82,25 @@ int main(void)
 	USART_Config();
 	Four_Clocks();
 
-	for (i = 0; i < 200; ++i)
+	for (i = 0; i < 400; ++i)
 	{
-		Delayus(10000);
+		Delayus(5000);
 		MPU6050ReadAcc(Accel);
 		MPU6050ReadGyro(Gyro);
 		ComplementaryFilter(&Accel[0], &Gyro[0], &roll, &pitch);
 	}
 
-	for (i = 0; i < 200; ++i)
+	for (i = 0; i < 400; ++i)
 	{
-		Delayus(10000);
+		Delayus(5000);
 		MPU6050ReadAcc(Accel);
 		MPU6050ReadGyro(Gyro);
 		ComplementaryFilter(&Accel[0], &Gyro[0], &roll, &pitch);
 	}
 
-	for (i = 0; i < 200; ++i)
+	for (i = 0; i < 400; ++i)
 	{
-		Delayus(10000);
+		Delayus(5000);
 		MPU6050ReadAcc(Accel);
 		MPU6050ReadGyro(Gyro);
 		ComplementaryFilter(&Accel[0], &Gyro[0], &roll, &pitch);
@@ -110,11 +110,13 @@ int main(void)
 	roll_normal=roll_sum/200;
 	pitch_normal=pitch_sum/200;
 
+	
+	base_throttle=stop;
 
 	while(1)
 	{
 
-		Delayus(10000);
+		Delayus(5000);
 
 		if (USART_GetFlagStatus(USART1,USART_FLAG_RXNE) == SET) {
 			rxdata = USART_ReceiveData(USART1);
@@ -201,11 +203,11 @@ int main(void)
 			}
 			
 			if (increase == true) {
-				base_throttle+=7;
+				base_throttle++;
 			}
 			
 			if (decrease == true) {
-				base_throttle-=7;
+				base_throttle--;
 			}
 
 			sprintf(AnglesChar,"RPID:%i PPID:%i",pid_roll_25_sum,pid_pitch_25_sum);
@@ -335,7 +337,7 @@ void Four_Clocks (void)
 //Assign duty cycle to signals
 	TIM_OCInitStructure.TIM_OCMode = TIM_OCMode_PWM1;
 	TIM_OCInitStructure.TIM_OutputState = TIM_OutputState_Enable;
-	TIM_OCInitStructure.TIM_Pulse = stop;
+	TIM_OCInitStructure.TIM_Pulse = 1000;
 	TIM_OCInitStructure.TIM_OCPolarity = TIM_OCPolarity_High;
 TIM_OC3Init(TIM2, &TIM_OCInitStructure);//PA2
 TIM_OC1Init(TIM3, &TIM_OCInitStructure);//PA6
@@ -380,14 +382,14 @@ void Pulse_Balance(void) {
 	if (pulse5 > 2000)
 		pulse5 = 2000;
 
-	if (pulse2 < 1000)
-		pulse2 = 1000;
-	if (pulse3 < 1000)
-		pulse3 = 1000;
-	if (pulse4 < 1000)
-		pulse4 = 1000;
-	if (pulse5 < 1000)
-		pulse5 = 1000;
+	if (pulse2 < 1100)
+		pulse2 = 1100;
+	if (pulse3 < 1100)
+		pulse3 = 1100;
+	if (pulse4 < 1100)
+		pulse4 = 1100;
+	if (pulse5 < 1100)
+		pulse5 = 1100;
 
 	TIM_OCInitStructure.TIM_Pulse = pulse2;
 	TIM_OC3Init(TIM2, &TIM_OCInitStructure);
