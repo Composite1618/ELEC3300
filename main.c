@@ -34,18 +34,14 @@ float roll_normal, pitch_normal;
 float roll_error, pitch_error;
 float last_roll_error=0,last_pitch_error=0;
 
-int pid_roll_25_sum=0,pid_pitch_25_sum=0;
-int pid_roll_34_sum=0,pid_pitch_34_sum=0;
+int pid_roll_sum=0,pid_pitch_sum=0;
 
-float p_25_value=3.1,d_25_value=13.5, i_25_value=0.027;//Adjust these values
-float pid_i_roll_25=0,pid_i_pitch_25=0;
-
-float p_34_value=3.1,d_34_value=13.5, i_34_value=0.027;//Adjust these values
-float pid_i_roll_34=0,pid_i_pitch_34=0;
+float p_value=1.6,d_value=7, i_value=0.015;//Adjust these values
+float pid_i_roll=0,pid_i_pitch=0;
 
 void ComplementaryFilter(short accData[3], short gyrData[3], float *roll, float *pitch);
 void Delayus(int duration);
-void ctrl(float * rollp, float * pitchp, int * pid_roll_p_25, int * pid_pitch_p_25, int * pid_roll_p_34, int * pid_pitch_p_34);
+void ctrl(float * rollp, float * pitchp, int * pid_roll_p, int * pid_pitch_p);
 
 GPIO_InitTypeDef GPIO_InitStructure;
 TIM_TimeBaseInitTypeDef	TIM_TimeBaseStructure;
@@ -61,8 +57,8 @@ void Pulse_Balance(void);
 int stop = 1100;
 int down = 1300;
 int up = 1475;
+int working_throttle,base_throttle;
 int pulse2,pulse3,pulse4,pulse5;
-int base_throttle;
 uint16_t rxdata;
 char AnglesChar[70];
 bool increase=false;
@@ -107,11 +103,15 @@ int main(void)
 		roll_sum+=roll;
 		pitch_sum+=pitch;
 	}
-	roll_normal=roll_sum/200;
-	pitch_normal=pitch_sum/200;
-
-
-	base_throttle=stop;
+	roll_normal=roll_sum/100;
+	pitch_normal=pitch_sum/100;
+	
+	sprintf(AnglesChar,"R:%6.2f P:%6.2f",roll_normal,pitch_normal);
+	
+	LCD_DrawString(0,20,AnglesChar);
+	
+	base_throttle=working_throttle=stop;
+	
 
 	while(1)
 	{
@@ -122,28 +122,32 @@ int main(void)
 			rxdata = USART_ReceiveData(USART1);
 			switch (rxdata) {
 				case 'w':
-				d_25_value+=1;
-				sprintf(AnglesChar,"D:%6.3f",d_25_value);
+				flyf=2;
+				working_throttle-=10;
+				sprintf(AnglesChar,"D:%d",working_throttle);
+				decrease = true;
 				break;
 				case 's':
-				d_25_value-=1;
-				sprintf(AnglesChar,"D:%6.3f",d_25_value);
+				flyf=2;
+				working_throttle+=10;
+				sprintf(AnglesChar,"D:%d",working_throttle);
+				increase = true;
 				break;
 				case 'a':
-				d_25_value-=0.1;
-				sprintf(AnglesChar,"D:%6.3f",d_25_value);
+				d_value-=1;
+				sprintf(AnglesChar,"D:%6.3f",d_value);
 				break;
 				case 'd':
-				d_25_value+=0.1;
-				sprintf(AnglesChar,"D:%6.3f",d_25_value);
+				d_value+=1;
+				sprintf(AnglesChar,"D:%6.3f",d_value);
 				break;
 				case 'f':
-				p_25_value-=0.1;
-				sprintf(AnglesChar,"P:%6.3f",p_25_value);
+				p_value-=0.1;
+				sprintf(AnglesChar,"P:%6.3f",p_value);
 				break;
 				case 'b':
-				p_25_value+=0.1;
-				sprintf(AnglesChar,"P:%6.3f",p_25_value);
+				p_value+=0.1;
+				sprintf(AnglesChar,"P:%6.3f",p_value);
 				break;
 				case '0':
 				flyf=0;
@@ -160,70 +164,75 @@ int main(void)
 					decrease = true;
 				break;
 				case '3':
-				i_25_value+=0.001;
-				sprintf(AnglesChar,"I:%6.3f",i_25_value);
+				i_value+=0.001;
+				sprintf(AnglesChar,"I:%6.3f",i_value);
 				break;
 				case '4':
-				i_25_value-=0.001;
-				sprintf(AnglesChar,"I:%6.3f",i_25_value);
+				i_value-=0.001;
+				sprintf(AnglesChar,"I:%6.3f",i_value);
 				break;
 				case '5':
 				All_Timer_Pulse_Change(1000);
 				return -1;
-				default:
-				LCD_DrawString(0,120,AnglesChar);
+			}
+			
+			LCD_DrawString(0,120,AnglesChar);
+		}
+
+			MPU6050ReadAcc(Accel);
+			MPU6050ReadGyro(Gyro);
+			ComplementaryFilter(&Accel[0], &Gyro[0], &roll, &pitch);
+
+			ctrl(&roll, &pitch, &pid_roll_sum, &pid_pitch_sum);
+			
+			Pulse_Balance();
+
+			sprintf(AnglesChar,"Roll:%6.3f Pitch:%6.3f",roll,pitch);
+			LCD_DrawString(0,0,AnglesChar);
+			
+			switch (flyf) {
+				case 0:
+				if (base_throttle>=down)
+					increase = false;
+				if (base_throttle<=down)
+					decrease = false;
+				break;
+				case 1:
+				if (base_throttle>=up)
+					increase = false;
+				if (base_throttle<=up)
+					decrease = false;
+				break;
+				case 2:
+				if (base_throttle>=working_throttle)
+					increase = false;
+				if (base_throttle<=working_throttle)
+					decrease = false;
 				break;
 			}
+			
+			if (increase == true) {
+				base_throttle++;
+			}
+			
+			if (decrease == true) {
+				base_throttle--;
+			}
+
+			sprintf(AnglesChar,"RPID:%i PPID:%i",pid_roll_sum,pid_pitch_sum);
+			LCD_DrawString(0,40,AnglesChar);
+
+			sprintf(AnglesChar,"pulse2:%i pulse3:%i",pulse2,pulse3);
+			LCD_DrawString(0,60,AnglesChar);
+
+			sprintf(AnglesChar,"pulse4:%i pulse5:%i",pulse4,pulse5);
+			LCD_DrawString(0,80,AnglesChar);
 		}
-
-		MPU6050ReadAcc(Accel);
-		MPU6050ReadGyro(Gyro);
-		ComplementaryFilter(&Accel[0], &Gyro[0], &roll, &pitch);
-
-		ctrl(&roll, &pitch, &pid_roll_25_sum, &pid_pitch_25_sum, &pid_roll_34_sum, &pid_pitch_34_sum);
-		
-		Pulse_Balance();
-
-		sprintf(AnglesChar,"Roll:%6.3f Pitch:%6.3f",roll,pitch);
-		LCD_DrawString(0,0,AnglesChar);
-		
-		switch (flyf) {
-			case 0:
-			if (base_throttle>=down)
-				increase = false;
-			if (base_throttle<=down)
-				decrease = false;
-			break;
-			case 1:
-			if (base_throttle>=up)
-				increase = false;
-			if (base_throttle<=up)
-				decrease = false;
-			break;
-		}
-		
-		if (increase == true) {
-			base_throttle++;
-		}
-		
-		if (decrease == true) {
-			base_throttle--;
-		}
-
-		sprintf(AnglesChar,"RPID:%i PPID:%i",pid_roll_25_sum,pid_pitch_25_sum);
-		LCD_DrawString(0,40,AnglesChar);
-
-		sprintf(AnglesChar,"pulse2:%i pulse3:%i",pulse2,pulse3);
-		LCD_DrawString(0,60,AnglesChar);
-
-		sprintf(AnglesChar,"pulse4:%i pulse5:%i",pulse4,pulse5);
-		LCD_DrawString(0,80,AnglesChar);
-	}
 }
 
-void ComplementaryFilter(short accData[3], short gyrData[3], float *roll, float *pitch) {
-	float pitchAcc, rollAcc;
-	int forceMagnitudeApprox ;         
+	void ComplementaryFilter(short accData[3], short gyrData[3], float *roll, float *pitch) {
+		float pitchAcc, rollAcc;
+		int forceMagnitudeApprox ;         
 
 // Integrate the gyroscope data -> int(angularSpeed) = angle
 *pitch += ((float)gyrData[0] / GYROSCOPE_SENSITIVITY) * dt; // Angle around the X-axis
@@ -246,22 +255,16 @@ if (forceMagnitudeApprox > 8192 && forceMagnitudeApprox < 32768)
 //Ripped this code online
 }
 
-void ctrl(float * rollp, float * pitchp, int * pid_roll_p_25, int * pid_pitch_p_25, int * pid_roll_p_34, int * pid_pitch_p_34) {
+void ctrl(float * rollp, float * pitchp, int * pid_roll_p_25, int * pid_pitch_p_25) {
 	roll_error = *rollp - roll_normal;
 	pitch_error = *pitchp - pitch_normal;
 
-	pid_i_roll_25 += i_25_value*roll_error;
-	pid_i_pitch_25 += i_25_value*pitch_error;
+	pid_i_roll += i_value*roll_error;
+	pid_i_pitch += i_value*pitch_error;
 
-	*pid_roll_p_25 = p_25_value*roll_error+pid_i_roll_25+d_25_value*(roll_error-last_roll_error);
-	*pid_pitch_p_25 = p_25_value*pitch_error+pid_i_pitch_25+d_25_value*(pitch_error-last_pitch_error);
-
-	pid_i_roll_34 += i_34_value*roll_error;
-	pid_i_pitch_34 += i_34_value*pitch_error;
-
-	*pid_roll_p_34 = p_34_value*roll_error+pid_i_roll_34+d_34_value*(roll_error-last_roll_error);
-	*pid_pitch_p_34 = p_34_value*pitch_error+pid_i_pitch_34+d_34_value*(pitch_error-last_pitch_error);
-
+	*pid_roll_p_25 = p_value*roll_error+pid_i_roll+d_value*(roll_error-last_roll_error);
+	*pid_pitch_p_25 = p_value*pitch_error+pid_i_pitch+d_value*(pitch_error-last_pitch_error);
+	
 	last_roll_error = roll_error;
 	last_pitch_error = pitch_error;
 }
@@ -359,19 +362,19 @@ void USART1_SendString(const char * pStr) {
 
 void All_Timer_Pulse_Change(int pulse) {
 	TIM_OCInitStructure.TIM_Pulse = pulse;
-TIM_OC3Init(TIM2, &TIM_OCInitStructure);//PA2
-TIM_OC1Init(TIM3, &TIM_OCInitStructure);//PA6
-TIM_OC3Init(TIM4, &TIM_OCInitStructure);//PB8
-TIM_OC4Init(TIM5, &TIM_OCInitStructure);//PA3
+	TIM_OC3Init(TIM2, &TIM_OCInitStructure);//PA2
+	TIM_OC1Init(TIM3, &TIM_OCInitStructure);//PA6
+	TIM_OC3Init(TIM4, &TIM_OCInitStructure);//PB8
+	TIM_OC4Init(TIM5, &TIM_OCInitStructure);//PA3
 }
 
 void Pulse_Balance(void) {
 //a6 a3 roll + a2 b8 roll - a2 a6 pitch + b8 a3 pitch - 
 
-	pulse2 = base_throttle - pid_roll_25_sum + pid_pitch_25_sum;
-	pulse3 = base_throttle + pid_roll_34_sum + pid_pitch_34_sum;
-	pulse4 = base_throttle - pid_roll_34_sum - pid_pitch_34_sum;
-	pulse5 = base_throttle + pid_roll_25_sum - pid_pitch_25_sum;
+	pulse2 = base_throttle + pid_roll_sum - pid_pitch_sum;
+	pulse3 = base_throttle - pid_roll_sum - pid_pitch_sum;
+	pulse4 = base_throttle + pid_roll_sum + pid_pitch_sum;
+	pulse5 = base_throttle - pid_roll_sum + pid_pitch_sum;
 
 	if (pulse2 > 2000)
 		pulse2 = 2000;
