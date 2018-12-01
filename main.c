@@ -27,7 +27,7 @@ float last_roll_error=0,last_pitch_error=0;
 
 int pid_roll_sum=0,pid_pitch_sum=0;
 
-float p_value=3,d_value=45, i_value=0;//Adjust these values
+float p_value=3,d_value=27, i_value=0.02;//Adjust these values
 float pid_i_roll=0,pid_i_pitch=0;
 
 void ComplementaryFilter(short accData[3], short gyrData[3], float *roll, float *pitch);
