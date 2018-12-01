@@ -1,15 +1,3 @@
-/**
-******************************************************************************
-* @file   main.c
-* @author LYC
-* @version V1.0
-* @date   2014-04-22
-* @brief   MPU6050
-******************************************************************************
-* @attention
-******************************************************************************
-*/
-
 #include "stm32f10x.h"
 #include "stm32f10x_it.h"
 #include "./lcd/lcd.h"
@@ -25,7 +13,10 @@
 
 #define M_PI 3.14159265359	    
 
-#define dt 0.02
+#define alpha 0.85
+
+#define dt 0.005
+#define period 5000
 
 float roll=0, pitch=0;
 float roll_sum=0, pitch_sum=0;
@@ -36,7 +27,7 @@ float last_roll_error=0,last_pitch_error=0;
 
 int pid_roll_sum=0,pid_pitch_sum=0;
 
-float p_value=1.6,d_value=7, i_value=0.015;//Adjust these values
+float p_value=3,d_value=45, i_value=0;//Adjust these values
 float pid_i_roll=0,pid_i_pitch=0;
 
 void ComplementaryFilter(short accData[3], short gyrData[3], float *roll, float *pitch);
@@ -54,11 +45,13 @@ void Four_Clocks(void);//maps clocks PWM in pins
 void All_Timer_Pulse_Change(int pulse);
 void Pulse_Balance(void);
 
-int stop = 1100;
-int down = 1300;
-int up = 1475;
-int working_throttle,base_throttle;
+int stop = 7400;
+int down = 8000;
+int up = 8500;
+int max = 13000;
+int pulse;
 int pulse2,pulse3,pulse4,pulse5;
+int base_throttle;
 uint16_t rxdata;
 char AnglesChar[70];
 bool increase=false;
@@ -70,6 +63,7 @@ int main(void)
 	short Accel[3];
 	short Gyro[3];
 	int i;
+	pulse = stop;
 
 	i2c_GPIO_Config();
 	MPU6050_Init();
@@ -78,161 +72,121 @@ int main(void)
 	USART_Config();
 	Four_Clocks();
 
-	for (i = 0; i < 100; ++i)
+	for (i = 0; i < (4/dt); ++i)
 	{
-		Delayus(20000);
+		Delayus(period);
 		MPU6050ReadAcc(Accel);
 		MPU6050ReadGyro(Gyro);
 		ComplementaryFilter(&Accel[0], &Gyro[0], &roll, &pitch);
 	}
 
-	for (i = 0; i < 100; ++i)
+	for (i = 0; i < (1/dt); ++i)
 	{
-		Delayus(20000);
-		MPU6050ReadAcc(Accel);
-		MPU6050ReadGyro(Gyro);
-		ComplementaryFilter(&Accel[0], &Gyro[0], &roll, &pitch);
-	}
-
-	for (i = 0; i < 100; ++i)
-	{
-		Delayus(20000);
+		Delayus(period);
 		MPU6050ReadAcc(Accel);
 		MPU6050ReadGyro(Gyro);
 		ComplementaryFilter(&Accel[0], &Gyro[0], &roll, &pitch);
 		roll_sum+=roll;
 		pitch_sum+=pitch;
 	}
-	roll_normal=roll_sum/100;
-	pitch_normal=pitch_sum/100;
+	roll_normal=roll_sum/(1/dt);
+	pitch_normal=pitch_sum/(1/dt);
 	
-	sprintf(AnglesChar,"R:%6.2f P:%6.2f",roll_normal,pitch_normal);
-	
+
+	sprintf(AnglesChar,"R:%6.3f P:%6.3f",roll_normal,pitch_normal);
+
 	LCD_DrawString(0,20,AnglesChar);
-	
-	base_throttle=working_throttle=stop;
-	
+
+	base_throttle=down;
 
 	while(1)
 	{
 
-		Delayus(20000);
+		Delayus(period);
 
 		if (USART_GetFlagStatus(USART1,USART_FLAG_RXNE) == SET) {
 			rxdata = USART_ReceiveData(USART1);
 			switch (rxdata) {
-				case 'w':
-				flyf=2;
-				working_throttle-=10;
-				sprintf(AnglesChar,"D:%d",working_throttle);
-				decrease = true;
+				case '0':
+				d_value-=0.1;
+				sprintf(AnglesChar,"D:%6.3f",d_value);
 				break;
-				case 's':
-				flyf=2;
-				working_throttle+=10;
-				sprintf(AnglesChar,"D:%d",working_throttle);
-				increase = true;
+				case '1':
+				d_value+=0.1;
+				sprintf(AnglesChar,"D:%6.3f",d_value);
 				break;
-				case 'a':
+				case '2':
 				d_value-=1;
 				sprintf(AnglesChar,"D:%6.3f",d_value);
 				break;
-				case 'd':
+				case '3':
 				d_value+=1;
 				sprintf(AnglesChar,"D:%6.3f",d_value);
 				break;
-				case 'f':
+				case '4':
+				d_value-=5;
+				sprintf(AnglesChar,"D:%6.3f",d_value);
+				break;
+				case '5':
+				d_value+=5;
+				sprintf(AnglesChar,"D:%6.3f",d_value);
+				break;
+				case '6':
 				p_value-=0.1;
 				sprintf(AnglesChar,"P:%6.3f",p_value);
 				break;
-				case 'b':
+				case '7':
 				p_value+=0.1;
 				sprintf(AnglesChar,"P:%6.3f",p_value);
 				break;
-				case '0':
-				flyf=0;
-				if (base_throttle<down)
-					increase = true;
-				if (base_throttle>down)
-					decrease = true;
+				case '8':
+				p_value-=1;
+				sprintf(AnglesChar,"P:%6.3f",p_value);
 				break;
-				case '1':
-				flyf=1;
-				if (base_throttle<up)
-					increase = true;
-				if (base_throttle>up)
-					decrease = true;
+				case '9':
+				p_value+=1;
+				sprintf(AnglesChar,"P:%6.3f",p_value);
 				break;
-				case '3':
+				case 'a':
 				i_value+=0.001;
 				sprintf(AnglesChar,"I:%6.3f",i_value);
 				break;
-				case '4':
+				case 'b':
 				i_value-=0.001;
 				sprintf(AnglesChar,"I:%6.3f",i_value);
 				break;
-				case '5':
-				All_Timer_Pulse_Change(1000);
+				case 'c':
+				All_Timer_Pulse_Change(stop);
 				return -1;
 			}
-			
-			LCD_DrawString(0,120,AnglesChar);
-		}
-
-			MPU6050ReadAcc(Accel);
-			MPU6050ReadGyro(Gyro);
-			ComplementaryFilter(&Accel[0], &Gyro[0], &roll, &pitch);
-
-			ctrl(&roll, &pitch, &pid_roll_sum, &pid_pitch_sum);
-			
-			Pulse_Balance();
-
-			sprintf(AnglesChar,"Roll:%6.3f Pitch:%6.3f",roll,pitch);
-			LCD_DrawString(0,0,AnglesChar);
-			
-			switch (flyf) {
-				case 0:
-				if (base_throttle>=down)
-					increase = false;
-				if (base_throttle<=down)
-					decrease = false;
-				break;
-				case 1:
-				if (base_throttle>=up)
-					increase = false;
-				if (base_throttle<=up)
-					decrease = false;
-				break;
-				case 2:
-				if (base_throttle>=working_throttle)
-					increase = false;
-				if (base_throttle<=working_throttle)
-					decrease = false;
-				break;
-			}
-			
-			if (increase == true) {
-				base_throttle++;
-			}
-			
-			if (decrease == true) {
-				base_throttle--;
-			}
-
-			sprintf(AnglesChar,"RPID:%i PPID:%i",pid_roll_sum,pid_pitch_sum);
-			LCD_DrawString(0,40,AnglesChar);
-
-			sprintf(AnglesChar,"pulse2:%i pulse3:%i",pulse2,pulse3);
 			LCD_DrawString(0,60,AnglesChar);
-
-			sprintf(AnglesChar,"pulse4:%i pulse5:%i",pulse4,pulse5);
-			LCD_DrawString(0,80,AnglesChar);
 		}
+
+		MPU6050ReadAcc(Accel);
+		MPU6050ReadGyro(Gyro);
+		ComplementaryFilter(&Accel[0], &Gyro[0], &roll, &pitch);
+
+		ctrl(&roll, &pitch, &pid_roll_sum, &pid_pitch_sum);
+
+		Pulse_Balance();
+
+		sprintf(AnglesChar,"Roll:%6.3f Pitch:%6.3f",roll,pitch);
+		LCD_DrawString(0,0,AnglesChar);
+
+		sprintf(AnglesChar,"RPID:%i PPID:%i",pid_roll_sum,pid_pitch_sum);
+		LCD_DrawString(0,40,AnglesChar);
+
+		sprintf(AnglesChar,"pulse2:%i pulse3:%i",pulse2,pulse3);
+		LCD_DrawString(0,80,AnglesChar);
+
+		sprintf(AnglesChar,"pulse4:%i pulse5:%i",pulse4,pulse5);
+		LCD_DrawString(0,100,AnglesChar);
+	}
 }
 
-	void ComplementaryFilter(short accData[3], short gyrData[3], float *roll, float *pitch) {
-		float pitchAcc, rollAcc;
-		int forceMagnitudeApprox ;         
+void ComplementaryFilter(short accData[3], short gyrData[3], float *roll, float *pitch) {
+	float pitchAcc, rollAcc;
+	int forceMagnitudeApprox ;         
 
 // Integrate the gyroscope data -> int(angularSpeed) = angle
 *pitch += ((float)gyrData[0] / GYROSCOPE_SENSITIVITY) * dt; // Angle around the X-axis
@@ -245,26 +199,26 @@ if (forceMagnitudeApprox > 8192 && forceMagnitudeApprox < 32768)
 {
 // Turning around the X axis results in a vector on the Y-axis
 	pitchAcc = atan2f((float)accData[1], (float)accData[2]) * 180 / M_PI;
-	*pitch = *pitch * 0.98 + pitchAcc * 0.02;
+	*pitch = *pitch * alpha + pitchAcc * (1-alpha);
 
 // Turning around the Y axis results in a vector on the X-axis
 	rollAcc = atan2f((float)accData[0], (float)accData[2]) * 180 / M_PI;
-	*roll = *roll * 0.98 + rollAcc * 0.02;
+	*roll = *roll * alpha + rollAcc * (1-alpha);
 }
 
 //Ripped this code online
 }
 
-void ctrl(float * rollp, float * pitchp, int * pid_roll_p_25, int * pid_pitch_p_25) {
+void ctrl(float * rollp, float * pitchp, int * pid_roll_p, int * pid_pitch_p) {
 	roll_error = *rollp - roll_normal;
 	pitch_error = *pitchp - pitch_normal;
 
 	pid_i_roll += i_value*roll_error;
 	pid_i_pitch += i_value*pitch_error;
 
-	*pid_roll_p_25 = p_value*roll_error+pid_i_roll+d_value*(roll_error-last_roll_error);
-	*pid_pitch_p_25 = p_value*pitch_error+pid_i_pitch+d_value*(pitch_error-last_pitch_error);
-	
+	*pid_roll_p = p_value*roll_error+pid_i_roll+d_value*(roll_error-last_roll_error);
+	*pid_pitch_p = p_value*pitch_error+pid_i_pitch+d_value*(pitch_error-last_pitch_error);
+
 	last_roll_error = roll_error;
 	last_pitch_error = pitch_error;
 }
@@ -327,9 +281,9 @@ void Four_Clocks (void)
 	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM5, ENABLE);
 	RCC_APB2PeriphClockCmd(RCC_APB2Periph_AFIO, ENABLE);
 
-//Generate 4 50hz pwm signals
+//Generate 4 400hz pwm signals
 	TIM_TimeBaseStructure.TIM_Period = 19999;
-	TIM_TimeBaseStructure.TIM_Prescaler = 72;
+	TIM_TimeBaseStructure.TIM_Prescaler = 9;
 	TIM_TimeBaseStructure.TIM_ClockDivision = 0;
 	TIM_TimeBaseStructure.TIM_CounterMode = TIM_CounterMode_Up;
 	TIM_TimeBaseInit(TIM2, &TIM_TimeBaseStructure);
@@ -340,7 +294,7 @@ void Four_Clocks (void)
 //Assign duty cycle to signals
 	TIM_OCInitStructure.TIM_OCMode = TIM_OCMode_PWM1;
 	TIM_OCInitStructure.TIM_OutputState = TIM_OutputState_Enable;
-	TIM_OCInitStructure.TIM_Pulse = 1000;
+	TIM_OCInitStructure.TIM_Pulse = stop;
 	TIM_OCInitStructure.TIM_OCPolarity = TIM_OCPolarity_High;
 TIM_OC3Init(TIM2, &TIM_OCInitStructure);//PA2
 TIM_OC1Init(TIM3, &TIM_OCInitStructure);//PA6
@@ -362,37 +316,37 @@ void USART1_SendString(const char * pStr) {
 
 void All_Timer_Pulse_Change(int pulse) {
 	TIM_OCInitStructure.TIM_Pulse = pulse;
-	TIM_OC3Init(TIM2, &TIM_OCInitStructure);//PA2
-	TIM_OC1Init(TIM3, &TIM_OCInitStructure);//PA6
-	TIM_OC3Init(TIM4, &TIM_OCInitStructure);//PB8
-	TIM_OC4Init(TIM5, &TIM_OCInitStructure);//PA3
+TIM_OC3Init(TIM2, &TIM_OCInitStructure);//PA2
+TIM_OC1Init(TIM3, &TIM_OCInitStructure);//PA6
+TIM_OC3Init(TIM4, &TIM_OCInitStructure);//PB8
+TIM_OC4Init(TIM5, &TIM_OCInitStructure);//PA3
 }
 
 void Pulse_Balance(void) {
 //a6 a3 roll + a2 b8 roll - a2 a6 pitch + b8 a3 pitch - 
 
-	pulse2 = base_throttle + pid_roll_sum - pid_pitch_sum;
-	pulse3 = base_throttle - pid_roll_sum - pid_pitch_sum;
-	pulse4 = base_throttle + pid_roll_sum + pid_pitch_sum;
-	pulse5 = base_throttle - pid_roll_sum + pid_pitch_sum;
+	pulse2 = base_throttle - pid_roll_sum + pid_pitch_sum;
+	pulse3 = base_throttle + pid_roll_sum + pid_pitch_sum;
+	pulse4 = base_throttle - pid_roll_sum - pid_pitch_sum;
+	pulse5 = base_throttle + pid_roll_sum - pid_pitch_sum;
 
-	if (pulse2 > 2000)
-		pulse2 = 2000;
-	if (pulse3 > 2000)
-		pulse3 = 2000;
-	if (pulse4 > 2000)
-		pulse4 = 2000;
-	if (pulse5 > 2000)
-		pulse5 = 2000;
+	if (pulse2 > max)
+		pulse2 = max;
+	if (pulse3 > max)
+		pulse3 = max;
+	if (pulse4 > max)
+		pulse4 = max;
+	if (pulse5 > max)
+		pulse5 = max;
 
-	if (pulse2 < 1100)
-		pulse2 = 1100;
-	if (pulse3 < 1100)
-		pulse3 = 1100;
-	if (pulse4 < 1100)
-		pulse4 = 1100;
-	if (pulse5 < 1100)
-		pulse5 = 1100;
+	if (pulse2 < stop)
+		pulse2 = stop;
+	if (pulse3 < stop)
+		pulse3 = stop;
+	if (pulse4 < stop)
+		pulse4 = stop;
+	if (pulse5 < stop)
+		pulse5 = stop;
 
 	TIM_OCInitStructure.TIM_Pulse = pulse2;
 	TIM_OC3Init(TIM2, &TIM_OCInitStructure);
@@ -415,3 +369,4 @@ void Delayus(int duration) {
 			__asm("nop");
 	}
 }
+
