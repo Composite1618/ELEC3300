@@ -13,10 +13,10 @@
 
 #define M_PI 3.14159265359	    
 
-#define alpha 0.85
+#define alpha 0.9
 
-#define dt 0.005
-#define period 5000
+#define dt 0.025
+#define period 2500
 
 float roll=0, pitch=0;
 float roll_sum=0, pitch_sum=0;
@@ -27,7 +27,7 @@ float last_roll_error=0,last_pitch_error=0;
 
 int pid_roll_sum=0,pid_pitch_sum=0;
 
-float p_value=3,d_value=27, i_value=0.02;//Adjust these values
+float p_value=10.4,d_value=144, i_value=0;//Adjust these values
 float pid_i_roll=0,pid_i_pitch=0;
 
 void ComplementaryFilter(short accData[3], short gyrData[3], float *roll, float *pitch);
@@ -45,8 +45,8 @@ void Four_Clocks(void);//maps clocks PWM in pins
 void All_Timer_Pulse_Change(int pulse);
 void Pulse_Balance(void);
 
-int stop = 7400;
-int down = 8000;
+int stop = 7000;
+int down = 9000;
 int up = 8500;
 int max = 13000;
 int pulse;
@@ -108,54 +108,58 @@ int main(void)
 			rxdata = USART_ReceiveData(USART1);
 			switch (rxdata) {
 				case '0':
-				d_value-=0.1;
+				base_throttle+=100;
 				sprintf(AnglesChar,"D:%6.3f",d_value);
 				break;
 				case '1':
-				d_value+=0.1;
+				base_throttle+=100;
 				sprintf(AnglesChar,"D:%6.3f",d_value);
 				break;
 				case '2':
-				d_value-=1;
-				sprintf(AnglesChar,"D:%6.3f",d_value);
-				break;
-				case '3':
-				d_value+=1;
-				sprintf(AnglesChar,"D:%6.3f",d_value);
-				break;
-				case '4':
 				d_value-=5;
 				sprintf(AnglesChar,"D:%6.3f",d_value);
 				break;
-				case '5':
+				case '3':
 				d_value+=5;
 				sprintf(AnglesChar,"D:%6.3f",d_value);
 				break;
+				case '4':
+				p_value-=1;
+				sprintf(AnglesChar,"D:%6.3f",p_value);
+				break;
+				case '5':
+				p_value+=1;
+				sprintf(AnglesChar,"D:%6.3f",p_value);
+				break;
 				case '6':
-				p_value-=0.1;
+				p_value-=3;
 				sprintf(AnglesChar,"P:%6.3f",p_value);
 				break;
 				case '7':
-				p_value+=0.1;
+				p_value+=3;
 				sprintf(AnglesChar,"P:%6.3f",p_value);
 				break;
 				case '8':
-				p_value-=1;
-				sprintf(AnglesChar,"P:%6.3f",p_value);
+				i_value-=0.05;
+				sprintf(AnglesChar,"I:%6.3f",i_value);
 				break;
 				case '9':
-				p_value+=1;
-				sprintf(AnglesChar,"P:%6.3f",p_value);
+				i_value+=0.05;
+				sprintf(AnglesChar,"I:%6.3f",i_value);
 				break;
 				case 'a':
-				i_value+=0.001;
+				i_value-=0.15;
 				sprintf(AnglesChar,"I:%6.3f",i_value);
 				break;
 				case 'b':
-				i_value-=0.001;
+				i_value+=0.15;
 				sprintf(AnglesChar,"I:%6.3f",i_value);
 				break;
 				case 'c':
+					pid_i_roll=0;
+					pid_i_pitch=0;
+				break;
+				case 'd':
 				All_Timer_Pulse_Change(stop);
 				return -1;
 			}
@@ -181,6 +185,7 @@ int main(void)
 
 		sprintf(AnglesChar,"pulse4:%i pulse5:%i",pulse4,pulse5);
 		LCD_DrawString(0,100,AnglesChar);
+		
 	}
 }
 
@@ -219,6 +224,15 @@ void ctrl(float * rollp, float * pitchp, int * pid_roll_p, int * pid_pitch_p) {
 	*pid_roll_p = p_value*roll_error+pid_i_roll+d_value*(roll_error-last_roll_error);
 	*pid_pitch_p = p_value*pitch_error+pid_i_pitch+d_value*(pitch_error-last_pitch_error);
 
+	sprintf(AnglesChar,"R:%3.0f P:%3.0f",p_value*roll_error,p_value*pitch_error);
+	LCD_DrawString(0,120,AnglesChar);
+	
+	sprintf(AnglesChar,"R:%3.0f P:%3.0f",d_value*(roll_error-last_roll_error),d_value*(pitch_error-last_pitch_error));
+	LCD_DrawString(0,140,AnglesChar);
+	
+	sprintf(AnglesChar,"R:%3.0f P:%3.0f",pid_i_roll,pid_i_pitch);
+	LCD_DrawString(0,160,AnglesChar);
+	
 	last_roll_error = roll_error;
 	last_pitch_error = pitch_error;
 }
