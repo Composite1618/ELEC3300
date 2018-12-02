@@ -41,7 +41,7 @@ float pid_roll_rate_sum=0,pid_pitch_rate_sum=0;
 float p_value=2.6,d_value=20, i_value=0.015;//Adjust these values
 float pid_i_roll=0,pid_i_pitch=0;
 
-float p_value2=3, d_value2=25, i_value2=0.015;//Adjust these values
+float p_value2=2.6, d_value2=28, i_value2=0.018;//Adjust these values
 float pid_p_roll_rate,pid_p_pitch_rate,pid_i_roll_rate=0,pid_i_pitch_rate=0,pid_d_roll_rate,pid_d_pitch_rate;
 
 
@@ -216,7 +216,7 @@ int main(void)
 		ctrl();
 		ctrl2();
 		
-		sprintf(AChar,"%i,%i,%i,%i\n",(int)(roll_rate_error+pitch_rate_error),(int)(pid_p_roll_rate+pid_p_pitch_rate),(int)(pid_i_roll_rate+pid_i_pitch_rate),(int)(pid_d_roll_rate+pid_d_pitch_rate));
+		sprintf(AChar,"%i,%i,%i,%i\n",(int)(pid_p_roll_rate+pid_p_pitch_rate),(int)(pid_i_roll_rate+pid_i_pitch_rate),(int)(pid_d_roll_rate+pid_d_pitch_rate),(int)(roll_rate_error+pitch_rate_error));
 		UU_PutString(USART1, AChar);
 		
 		Pulse_Balance();
