@@ -29,7 +29,6 @@ float roll_normal, pitch_normal;
 float roll_rate, pitch_rate;
 float roll_rate_normal=0,roll_rate_sum,pitch_rate_normal=0,pitch_rate_sum;
 
-
 float roll_error, pitch_error;
 float last_roll_error=0,last_pitch_error=0;
 
@@ -38,10 +37,10 @@ float last_roll_rate_error=0,last_pitch_rate_error=0;
 
 float pid_roll_rate_sum=0,pid_pitch_rate_sum=0;
 
-float p_value=2.6,d_value=20, i_value=0.015;//Adjust these values
-float pid_i_roll=0,pid_i_pitch=0;
+float p_value=3.6,d_value=40, i_value=0.008;//Adjust these values
+float pid_p_roll,pid_p_pitch,pid_i_roll=0,pid_i_pitch=0,pid_d_roll,pid_d_pitch;
 
-float p_value2=2.6, d_value2=28, i_value2=0.018;//Adjust these values
+float p_value2=3, d_value2=20, i_value2=0.030;//Adjust these values
 float pid_p_roll_rate,pid_p_pitch_rate,pid_i_roll_rate=0,pid_i_pitch_rate=0,pid_d_roll_rate,pid_d_pitch_rate;
 
 
@@ -81,7 +80,7 @@ bool decrease=false;
 int flyf=false;
 short Accel[3];
 short Gyro[3];
-char AChar[10];
+char AChar[15];
 
 int main(void)
 {
@@ -216,6 +215,9 @@ int main(void)
 		ctrl();
 		ctrl2();
 		
+		sprintf(AChar,"%i,%i,%i,%i,",(int)(pid_p_roll+pid_p_pitch),(int)(pid_i_roll+pid_i_pitch),(int)(pid_d_roll+pid_d_pitch),(int)(roll_error+pitch_error));
+		UU_PutString(USART1, AChar);
+		
 		sprintf(AChar,"%i,%i,%i,%i\n",(int)(pid_p_roll_rate+pid_p_pitch_rate),(int)(pid_i_roll_rate+pid_i_pitch_rate),(int)(pid_d_roll_rate+pid_d_pitch_rate),(int)(roll_rate_error+pitch_rate_error));
 		UU_PutString(USART1, AChar);
 		
@@ -254,11 +256,17 @@ void ctrl(void) {
 	roll_error = roll - roll_normal;
 	pitch_error = pitch - pitch_normal;
 
+	pid_p_roll=p_value*roll_error;
+	pid_p_pitch=p_value*pitch_error;
+	
 	pid_i_roll += i_value*roll_error;
 	pid_i_pitch += i_value*pitch_error;
 	
-	pid_roll_rate_sum = p_value*roll_error+pid_i_roll+d_value*(roll_error-last_roll_error);
-	pid_pitch_rate_sum = p_value*pitch_error+pid_i_pitch+d_value*(pitch_error-last_pitch_error);
+	pid_d_roll=d_value*(roll_error-last_roll_error);
+	pid_d_pitch=d_value*(pitch_error-last_pitch_error);
+	
+	pid_roll_rate_sum = pid_p_roll+pid_i_roll+pid_d_roll;
+	pid_pitch_rate_sum = pid_p_pitch+pid_i_pitch+pid_d_pitch;
 	
 	last_roll_error = roll_error;
 	last_pitch_error = pitch_error;
@@ -271,11 +279,11 @@ void ctrl2(void) {
 	pid_p_roll_rate=p_value2*roll_rate_error;
 	pid_p_pitch_rate=p_value2*pitch_rate_error;
 	
-	pid_d_roll_rate=d_value2*(roll_rate_error-last_roll_rate_error);
-	pid_d_pitch_rate=d_value2*(pitch_rate_error-last_pitch_rate_error);
-	
 	pid_i_roll_rate += i_value2*roll_rate_error;
 	pid_i_pitch_rate += i_value2*pitch_rate_error;
+	
+	pid_d_roll_rate=d_value2*(roll_rate_error-last_roll_rate_error);
+	pid_d_pitch_rate=d_value2*(pitch_rate_error-last_pitch_rate_error);
 
 	pid_roll = pid_p_roll_rate+pid_i_roll_rate+pid_d_roll_rate;
 	pid_pitch = pid_p_roll_rate+pid_i_pitch_rate+pid_d_pitch_rate;
