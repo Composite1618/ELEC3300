@@ -93,13 +93,8 @@ int main(void)
 	USART_Config();
 	Four_Clocks();
 
-	for (i = 0; i < (4/accel_dt); ++i)
-	{
-		MPU6050ReadGyro(Gyro);
-		MPU6050ReadAcc(Accel);
-		ComplementaryFilter(&Accel[0], &Gyro[0], &roll, &pitch);
-		Delayus(accel_period);
-	}
+	
+	Delayus(5000000);
 
 	for (i = 0; i < (1/accel_dt); ++i)
 	{
