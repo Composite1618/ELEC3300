@@ -109,10 +109,8 @@ int main(void)
 	pitch_normal=pitch_sum/(1/accel_dt);
 
 	base_throttle=down;
-	i=0;
 	while(1)
 	{
-		i++;
 		MPU6050ReadAcc(Accel);
 		MPU6050ReadGyro(Gyro);
 		ComplementaryFilter(&Accel[0], &Gyro[0], &roll, &pitch);
@@ -217,11 +215,6 @@ int main(void)
 		
 		ctrl();
 		ctrl2();
-		
-		if (i==100) {
-			UU_PutString(USART1, "\n");
-			i=0;
-		}
 		
 		Pulse_Balance();
 		
