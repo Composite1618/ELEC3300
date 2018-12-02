@@ -1,3 +1,4 @@
+//Alternate design
 #include "stm32f10x.h"
 #include "stm32f10x_it.h"
 #include "./lcd/lcd.h"
@@ -7,32 +8,51 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <math.h>
+#include <string.h>
 
 #define ACCELEROMETER_SENSITIVITY 8192.0
-#define GYROSCOPE_SENSITIVITY 65.536
+#define GYROSCOPE_SENSITIVITY 16.4
 
 #define M_PI 3.14159265359	    
 
 #define alpha 0.9
 
-#define dt 0.025
+#define dt 0.0025
+#define accel_dt 0.002
 #define period 2500
+#define accel_period 1000
 
 float roll=0, pitch=0;
 float roll_sum=0, pitch_sum=0;
 float roll_normal, pitch_normal;
 
+float roll_rate, pitch_rate;
+float roll_rate_normal=0,roll_rate_sum,pitch_rate_normal=0,pitch_rate_sum;
+
+
 float roll_error, pitch_error;
 float last_roll_error=0,last_pitch_error=0;
 
-int pid_roll_sum=0,pid_pitch_sum=0;
+float roll_rate_error, pitch_rate_error;
+float last_roll_rate_error=0,last_pitch_rate_error=0;
 
-float p_value=10.4,d_value=144, i_value=0;//Adjust these values
+float pid_roll_rate_sum=0,pid_pitch_rate_sum=0;
+
+float p_value=2.6,d_value=20, i_value=0.015;//Adjust these values
 float pid_i_roll=0,pid_i_pitch=0;
+
+float p_value2=3, d_value2=25, i_value2=0.015;//Adjust these values
+float pid_p_roll_rate,pid_p_pitch_rate,pid_i_roll_rate=0,pid_i_pitch_rate=0,pid_d_roll_rate,pid_d_pitch_rate;
+
+
+float pid_roll, pid_pitch;
+
+float last_roll, last_pitch;
 
 void ComplementaryFilter(short accData[3], short gyrData[3], float *roll, float *pitch);
 void Delayus(int duration);
-void ctrl(float * rollp, float * pitchp, int * pid_roll_p, int * pid_pitch_p);
+void ctrl(void);
+void ctrl2(void);
 
 GPIO_InitTypeDef GPIO_InitStructure;
 TIM_TimeBaseInitTypeDef	TIM_TimeBaseStructure;
@@ -40,15 +60,17 @@ TIM_OCInitTypeDef TIM_OCInitStructure;
 USART_InitTypeDef USART_InitStructure;
 void GPIO_Config(void);
 void USART_Config(void);
-void Delayus(int duration);
 void Four_Clocks(void);//maps clocks PWM in pins
 void All_Timer_Pulse_Change(int pulse);
 void Pulse_Balance(void);
 
+void UU_PutNumber(USART_TypeDef* USARTx, int x);
+void UU_PutString(USART_TypeDef* USARTx, char* message);
+
 int stop = 7000;
 int down = 9000;
 int up = 8500;
-int max = 13000;
+int max = 14000;
 int pulse;
 int pulse2,pulse3,pulse4,pulse5;
 int base_throttle;
@@ -57,11 +79,12 @@ char AnglesChar[70];
 bool increase=false;
 bool decrease=false;
 int flyf=false;
+short Accel[3];
+short Gyro[3];
+char AChar[10];
 
 int main(void)
 {
-	short Accel[3];
-	short Gyro[3];
 	int i;
 	pulse = stop;
 
@@ -72,47 +95,39 @@ int main(void)
 	USART_Config();
 	Four_Clocks();
 
-	for (i = 0; i < (4/dt); ++i)
-	{
-		Delayus(period);
-		MPU6050ReadAcc(Accel);
-		MPU6050ReadGyro(Gyro);
-		ComplementaryFilter(&Accel[0], &Gyro[0], &roll, &pitch);
-	}
+	
+	Delayus(5000000);
 
-	for (i = 0; i < (1/dt); ++i)
+	for (i = 0; i < (1/accel_dt); ++i)
 	{
-		Delayus(period);
-		MPU6050ReadAcc(Accel);
 		MPU6050ReadGyro(Gyro);
+		MPU6050ReadAcc(Accel);
 		ComplementaryFilter(&Accel[0], &Gyro[0], &roll, &pitch);
 		roll_sum+=roll;
 		pitch_sum+=pitch;
+		Delayus(accel_period);
 	}
-	roll_normal=roll_sum/(1/dt);
-	pitch_normal=pitch_sum/(1/dt);
-	
-
-	sprintf(AnglesChar,"R:%6.3f P:%6.3f",roll_normal,pitch_normal);
-
-	LCD_DrawString(0,20,AnglesChar);
+	roll_normal=roll_sum/(1/accel_dt);
+	pitch_normal=pitch_sum/(1/accel_dt);
 
 	base_throttle=down;
-
 	while(1)
 	{
-
-		Delayus(period);
+		MPU6050ReadAcc(Accel);
+		MPU6050ReadGyro(Gyro);
+		ComplementaryFilter(&Accel[0], &Gyro[0], &roll, &pitch);
+		
+		Delayus(accel_period);
 
 		if (USART_GetFlagStatus(USART1,USART_FLAG_RXNE) == SET) {
 			rxdata = USART_ReceiveData(USART1);
 			switch (rxdata) {
 				case '0':
-				base_throttle+=100;
+				d_value-=1;
 				sprintf(AnglesChar,"D:%6.3f",d_value);
 				break;
 				case '1':
-				base_throttle+=100;
+				d_value+=1;
 				sprintf(AnglesChar,"D:%6.3f",d_value);
 				break;
 				case '2':
@@ -158,6 +173,8 @@ int main(void)
 				case 'c':
 					pid_i_roll=0;
 					pid_i_pitch=0;
+					pid_i_roll_rate=0;
+					pid_i_pitch_rate=0;
 				break;
 				case 'd':
 				All_Timer_Pulse_Change(stop);
@@ -170,22 +187,41 @@ int main(void)
 		MPU6050ReadGyro(Gyro);
 		ComplementaryFilter(&Accel[0], &Gyro[0], &roll, &pitch);
 
-		ctrl(&roll, &pitch, &pid_roll_sum, &pid_pitch_sum);
+		last_roll=roll;
+		last_pitch=pitch;
+		
+		Delayus(accel_period);
 
-		Pulse_Balance();
-
-		sprintf(AnglesChar,"Roll:%6.3f Pitch:%6.3f",roll,pitch);
+		sprintf(AnglesChar,"RE:%6.1f PE:%6.1f",roll_rate_error,pitch_rate_error);
 		LCD_DrawString(0,0,AnglesChar);
+		
+		sprintf(AnglesChar,"R:%6.1f P:%6.1f",roll_error,pitch_error);
+		LCD_DrawString(0,20,AnglesChar);
+		
+		sprintf(AnglesChar,"R1:%6.1f P1:%6.1f",pid_roll_rate_sum,pid_pitch_rate_sum);
+		LCD_DrawString(0,60,AnglesChar);
 
-		sprintf(AnglesChar,"RPID:%i PPID:%i",pid_roll_sum,pid_pitch_sum);
-		LCD_DrawString(0,40,AnglesChar);
-
-		sprintf(AnglesChar,"pulse2:%i pulse3:%i",pulse2,pulse3);
+		sprintf(AnglesChar,"R2:%6.1f P2:%6.1f",pid_roll,pid_pitch);
 		LCD_DrawString(0,80,AnglesChar);
 
-		sprintf(AnglesChar,"pulse4:%i pulse5:%i",pulse4,pulse5);
+		sprintf(AnglesChar,"p2:%5i p3:%5i",pulse2,pulse3);
 		LCD_DrawString(0,100,AnglesChar);
+
+		sprintf(AnglesChar,"p4:%5i p5:%5i",pulse4,pulse5);
+		LCD_DrawString(0,120,AnglesChar);
 		
+		roll_rate=roll-last_roll;
+		pitch_rate=pitch-last_pitch;
+		
+		ctrl();
+		ctrl2();
+		
+		sprintf(AChar,"%i,%i,%i,%i\n",(int)(roll_rate_error+pitch_rate_error),(int)(pid_p_roll_rate+pid_p_pitch_rate),(int)(pid_i_roll_rate+pid_i_pitch_rate),(int)(pid_d_roll_rate+pid_d_pitch_rate));
+		UU_PutString(USART1, AChar);
+		
+		Pulse_Balance();
+		
+		Delayus(period-2*accel_period);
 	}
 }
 
@@ -214,27 +250,38 @@ if (forceMagnitudeApprox > 8192 && forceMagnitudeApprox < 32768)
 //Ripped this code online
 }
 
-void ctrl(float * rollp, float * pitchp, int * pid_roll_p, int * pid_pitch_p) {
-	roll_error = *rollp - roll_normal;
-	pitch_error = *pitchp - pitch_normal;
+void ctrl(void) {
+	roll_error = roll - roll_normal;
+	pitch_error = pitch - pitch_normal;
 
 	pid_i_roll += i_value*roll_error;
 	pid_i_pitch += i_value*pitch_error;
-
-	*pid_roll_p = p_value*roll_error+pid_i_roll+d_value*(roll_error-last_roll_error);
-	*pid_pitch_p = p_value*pitch_error+pid_i_pitch+d_value*(pitch_error-last_pitch_error);
-
-	sprintf(AnglesChar,"R:%3.0f P:%3.0f",p_value*roll_error,p_value*pitch_error);
-	LCD_DrawString(0,120,AnglesChar);
 	
-	sprintf(AnglesChar,"R:%3.0f P:%3.0f",d_value*(roll_error-last_roll_error),d_value*(pitch_error-last_pitch_error));
-	LCD_DrawString(0,140,AnglesChar);
-	
-	sprintf(AnglesChar,"R:%3.0f P:%3.0f",pid_i_roll,pid_i_pitch);
-	LCD_DrawString(0,160,AnglesChar);
+	pid_roll_rate_sum = p_value*roll_error+pid_i_roll+d_value*(roll_error-last_roll_error);
+	pid_pitch_rate_sum = p_value*pitch_error+pid_i_pitch+d_value*(pitch_error-last_pitch_error);
 	
 	last_roll_error = roll_error;
 	last_pitch_error = pitch_error;
+}
+
+void ctrl2(void) {
+	roll_rate_error = roll_rate - pid_roll_rate_sum - roll_rate_normal;
+	pitch_rate_error = pitch_rate - pid_pitch_rate_sum - pitch_rate_normal;
+	
+	pid_p_roll_rate=p_value2*roll_rate_error;
+	pid_p_pitch_rate=p_value2*pitch_rate_error;
+	
+	pid_d_roll_rate=d_value2*(roll_rate_error-last_roll_rate_error);
+	pid_d_pitch_rate=d_value2*(pitch_rate_error-last_pitch_rate_error);
+	
+	pid_i_roll_rate += i_value2*roll_rate_error;
+	pid_i_pitch_rate += i_value2*pitch_rate_error;
+
+	pid_roll = pid_p_roll_rate+pid_i_roll_rate+pid_d_roll_rate;
+	pid_pitch = pid_p_roll_rate+pid_i_pitch_rate+pid_d_pitch_rate;
+	
+	last_roll_rate_error = roll_rate_error;
+	last_pitch_rate_error = pitch_rate_error;
 }
 
 void GPIO_Config (void)
@@ -321,13 +368,6 @@ TIM_Cmd(TIM4, ENABLE);
 TIM_Cmd(TIM5, ENABLE);
 }
 
-void USART1_SendString(const char * pStr) {
-	while (*pStr != '\0') {
-		USART_SendData(USART1, *pStr);
-		pStr++;
-	}
-}
-
 void All_Timer_Pulse_Change(int pulse) {
 	TIM_OCInitStructure.TIM_Pulse = pulse;
 TIM_OC3Init(TIM2, &TIM_OCInitStructure);//PA2
@@ -337,12 +377,12 @@ TIM_OC4Init(TIM5, &TIM_OCInitStructure);//PA3
 }
 
 void Pulse_Balance(void) {
-//a6 a3 roll + a2 b8 roll - a2 a6 pitch + b8 a3 pitch - 
+//a6 a2 roll + a3 b8 roll - 2 4 pitch + 3 5 pitch - 
 
-	pulse2 = base_throttle - pid_roll_sum + pid_pitch_sum;
-	pulse3 = base_throttle + pid_roll_sum + pid_pitch_sum;
-	pulse4 = base_throttle - pid_roll_sum - pid_pitch_sum;
-	pulse5 = base_throttle + pid_roll_sum - pid_pitch_sum;
+	pulse2 = base_throttle + pid_roll - pid_pitch;
+	pulse3 = base_throttle - pid_roll - pid_pitch;
+	pulse4 = base_throttle + pid_roll + pid_pitch;
+	pulse5 = base_throttle - pid_roll + pid_pitch;
 
 	if (pulse2 > max)
 		pulse2 = max;
