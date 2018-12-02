@@ -29,6 +29,7 @@ float roll_normal, pitch_normal;
 float roll_rate, pitch_rate;
 float roll_rate_normal=0,roll_rate_sum,pitch_rate_normal=0,pitch_rate_sum;
 
+
 float roll_error, pitch_error;
 float last_roll_error=0,last_pitch_error=0;
 
@@ -37,11 +38,12 @@ float last_roll_rate_error=0,last_pitch_rate_error=0;
 
 float pid_roll_rate_sum=0,pid_pitch_rate_sum=0;
 
-float p_value=3,d_value=15, i_value=0.01;//Adjust these values
+float p_value=2.6,d_value=20, i_value=0.015;//Adjust these values
 float pid_i_roll=0,pid_i_pitch=0;
 
-float p_value2=3, d_value2=10, i_value2=0.01;//Adjust these values
-float pid_i_roll_rate=0,pid_i_pitch_rate=0;
+float p_value2=4.6, d_value2=20, i_value2=0.018;//Adjust these values
+float pid_p_roll_rate,pid_p_pitch_rate,pid_i_roll_rate=0,pid_i_pitch_rate=0,pid_d_roll_rate,pid_d_pitch_rate;
+
 
 float pid_roll, pid_pitch;
 
@@ -68,7 +70,7 @@ void UU_PutString(USART_TypeDef* USARTx, char* message);
 int stop = 7000;
 int down = 9000;
 int up = 8500;
-int max = 13000;
+int max = 14000;
 int pulse;
 int pulse2,pulse3,pulse4,pulse5;
 int base_throttle;
@@ -121,11 +123,11 @@ int main(void)
 			rxdata = USART_ReceiveData(USART1);
 			switch (rxdata) {
 				case '0':
-				base_throttle+=100;
+				d_value-=1;
 				sprintf(AnglesChar,"D:%6.3f",d_value);
 				break;
 				case '1':
-				base_throttle+=100;
+				d_value+=1;
 				sprintf(AnglesChar,"D:%6.3f",d_value);
 				break;
 				case '2':
@@ -171,6 +173,8 @@ int main(void)
 				case 'c':
 					pid_i_roll=0;
 					pid_i_pitch=0;
+					pid_i_roll_rate=0;
+					pid_i_pitch_rate=0;
 				break;
 				case 'd':
 				All_Timer_Pulse_Change(stop);
@@ -209,12 +213,11 @@ int main(void)
 		roll_rate=roll-last_roll;
 		pitch_rate=pitch-last_pitch;
 		
-		sprintf(AChar,"%i,",(int)roll_rate_error);
-		
-		UU_PutString(USART1, AChar);
-		
 		ctrl();
 		ctrl2();
+		
+		sprintf(AChar,"%i,%i,%i,%i\n",(int)(pid_p_roll_rate+pid_p_pitch_rate),(int)(pid_i_roll_rate+pid_i_pitch_rate),(int)(pid_d_roll_rate+pid_d_pitch_rate),(int)(roll_rate_error+pitch_rate_error));
+		UU_PutString(USART1, AChar);
 		
 		Pulse_Balance();
 		
@@ -264,12 +267,18 @@ void ctrl(void) {
 void ctrl2(void) {
 	roll_rate_error = roll_rate - pid_roll_rate_sum - roll_rate_normal;
 	pitch_rate_error = pitch_rate - pid_pitch_rate_sum - pitch_rate_normal;
-
+	
+	pid_p_roll_rate=p_value2*roll_rate_error;
+	pid_p_pitch_rate=p_value2*pitch_rate_error;
+	
+	pid_d_roll_rate=d_value2*(roll_rate_error-last_roll_rate_error);
+	pid_d_pitch_rate=d_value2*(pitch_rate_error-last_pitch_rate_error);
+	
 	pid_i_roll_rate += i_value2*roll_rate_error;
 	pid_i_pitch_rate += i_value2*pitch_rate_error;
 
-	pid_roll = p_value2*roll_rate_error+pid_i_roll_rate+d_value2*(roll_rate_error-last_roll_rate_error);
-	pid_pitch = p_value2*pitch_rate_error+pid_i_pitch_rate+d_value2*(pitch_rate_error-last_pitch_rate_error);
+	pid_roll = pid_p_roll_rate+pid_i_roll_rate+pid_d_roll_rate;
+	pid_pitch = pid_p_roll_rate+pid_i_pitch_rate+pid_d_pitch_rate;
 	
 	last_roll_rate_error = roll_rate_error;
 	last_pitch_rate_error = pitch_rate_error;
