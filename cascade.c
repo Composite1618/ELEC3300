@@ -38,7 +38,7 @@ float last_roll_rate_error=0,last_pitch_rate_error=0;
 
 float pid_roll_rate_sum=0,pid_pitch_rate_sum=0;
 
-float p_value=2.6,d_value=0, i_value=0.015;//Adjust these values
+float p_value=2.6,d_value=20, i_value=0.015;//Adjust these values
 float pid_i_roll=0,pid_i_pitch=0;
 
 float p_value2=4.6, d_value2=40, i_value2=0.018;//Adjust these values
